@@ -1,10 +1,10 @@
+```html
 <!doctype html>
-
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Circle Battle - Stage 1</title>
+    <title>Battle Arena</title>
 
     <style>
       * {
@@ -14,296 +14,814 @@
       html,
       body {
         margin: 0;
+        padding: 0;
         width: 100%;
         height: 100%;
+        background: #111;
         overflow: hidden;
         font-family: Arial, sans-serif;
-        background: #111;
+      }
+
+      #game-wrapper {
+        width: min(100vw, 540px);
+        height: 100vh;
+        margin: auto;
+        position: relative;
+        background: white;
+        overflow: hidden;
       }
 
       canvas {
+        width: 100%;
+        height: 100%;
         display: block;
-        width: 100vw;
-        height: 100vh;
-        background: white;
       }
 
-      #info {
-        position: fixed;
-        top: 15px;
-        left: 15px;
-        padding: 10px 14px;
-        background: rgba(0, 0, 0, 0.75);
-        color: white;
-        border-radius: 8px;
-        font-size: 14px;
+      #controls {
+        position: absolute;
+        left: 50%;
+        bottom: 15px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 8px;
         z-index: 10;
+        flex-wrap: wrap;
+        justify-content: center;
+        width: 95%;
+      }
+
+      button {
+        border: none;
+        border-radius: 10px;
+        padding: 10px 14px;
+        font-weight: bold;
+        cursor: pointer;
+        background: white;
+        color: #111;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+      }
+
+      button:hover {
+        transform: scale(1.04);
+      }
+
+      #message {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: white;
+        font-size: 42px;
+        font-weight: bold;
+        text-align: center;
+        display: none;
+        z-index: 20;
+        text-shadow: 3px 3px 10px black;
       }
     </style>
   </head>
 
   <body>
-    <div id="info">Stage 1 • Circle Battle</div>
+    <div id="game-wrapper">
+      <canvas id="gameCanvas" width="1080" height="1920"></canvas>
 
-    <canvas id="game"></canvas>
+      <div id="message"></div>
+
+      <div id="controls">
+        <button onclick="restartGame()">🔄 Restart</button>
+        <button onclick="testGift(1)">🎁 Gift 1</button>
+        <button onclick="testGift(10)">⚡ Gift 10</button>
+        <button onclick="testGift(100)">💥 Gift 100</button>
+        <button onclick="testGift(1000)">☢️ Gift 1000</button>
+      </div>
+    </div>
 
     <script>
-      const canvas = document.getElementById("game");
+      /* =========================================================
+   GAME SETUP
+========================================================= */
+
+      const canvas = document.getElementById("gameCanvas");
       const ctx = canvas.getContext("2d");
 
-      // ==========================================
-      // CANVAS
-      // ==========================================
+      const WIDTH = canvas.width;
+      const HEIGHT = canvas.height;
 
-      function resizeCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+      let players = [];
+      let bullets = [];
+      let effects = [];
 
-        // Keep players inside the new screen size
-        for (const player of players) {
-          player.x = Math.max(
-            player.radius,
-            Math.min(player.x, canvas.width - player.radius),
+      let keys = {};
+
+      let gameRunning = true;
+      let screenShake = 0;
+
+      let teamAScore = 0;
+      let teamBScore = 0;
+
+      /* =========================================================
+   KEYBOARD
+========================================================= */
+
+      document.addEventListener("keydown", function (event) {
+        keys[event.key.toLowerCase()] = true;
+
+        if (
+          ["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(
+            event.key.toLowerCase(),
+          )
+        ) {
+          event.preventDefault();
+        }
+
+        if (event.key.toLowerCase() === "r") {
+          restartGame();
+        }
+      });
+
+      document.addEventListener("keyup", function (event) {
+        keys[event.key.toLowerCase()] = false;
+      });
+
+      /* =========================================================
+   PLAYER CLASS
+========================================================= */
+
+      class Player {
+        constructor(id, name, team, isHuman = false) {
+          this.id = id;
+          this.name = name;
+          this.team = team;
+          this.isHuman = isHuman;
+
+          this.radius = 45;
+          this.baseRadius = 45;
+
+          this.hp = 100;
+          this.maxHp = 100;
+
+          this.damage = 15;
+          this.kills = 0;
+
+          this.speed = isHuman ? 8 : 1.2;
+
+          this.lastShot = 0;
+          this.shootInterval = 900 + Math.random() * 700;
+
+          this.alive = true;
+
+          this.x = 0;
+          this.y = 0;
+
+          this.color = team === "A" ? "#e63946" : "#00b4d8";
+
+          this.spawn();
+        }
+
+        spawn() {
+          if (this.team === "A") {
+            this.x = 100 + Math.random() * 350;
+          } else {
+            this.x = 630 + Math.random() * 350;
+          }
+
+          this.y = 300 + Math.random() * 1200;
+        }
+
+        grow() {
+          this.kills++;
+
+          this.radius = Math.min(130, this.baseRadius + this.kills * 10);
+
+          this.maxHp = 100 + this.kills * 40;
+
+          this.hp = Math.min(this.maxHp, this.hp + 60);
+
+          this.damage = 15 + this.kills * 5;
+        }
+
+        update(now) {
+          if (!this.alive) return;
+
+          /* HUMAN PLAYER MOVEMENT */
+
+          if (this.isHuman) {
+            if (keys["w"] || keys["arrowup"]) {
+              this.y -= this.speed;
+            }
+
+            if (keys["s"] || keys["arrowdown"]) {
+              this.y += this.speed;
+            }
+
+            if (keys["a"] || keys["arrowleft"]) {
+              this.x -= this.speed;
+            }
+
+            if (keys["d"] || keys["arrowright"]) {
+              this.x += this.speed;
+            }
+
+            this.x = Math.max(
+              this.radius,
+              Math.min(WIDTH / 2 - this.radius, this.x),
+            );
+
+            this.y = Math.max(180, Math.min(HEIGHT - this.radius - 20, this.y));
+          }
+
+          /* AI SHOOTING */
+
+          if (!this.isHuman && now - this.lastShot > this.shootInterval) {
+            let enemies = players.filter(
+              (p) => p.team !== this.team && p.alive,
+            );
+
+            if (enemies.length > 0) {
+              let target = enemies[Math.floor(Math.random() * enemies.length)];
+
+              shootAt(this, target);
+
+              this.lastShot = now;
+            }
+          }
+        }
+
+        draw() {
+          if (!this.alive) return;
+
+          /* HP BAR */
+
+          const barWidth = this.radius * 2;
+
+          ctx.fillStyle = "#333";
+
+          ctx.fillRect(
+            this.x - this.radius,
+            this.y - this.radius - 25,
+            barWidth,
+            10,
           );
 
-          player.y = Math.max(
-            player.radius,
-            Math.min(player.y, canvas.height - player.radius),
+          ctx.fillStyle = "#2ecc71";
+
+          ctx.fillRect(
+            this.x - this.radius,
+            this.y - this.radius - 25,
+            barWidth * Math.max(0, this.hp / this.maxHp),
+            10,
           );
+
+          /* NAME */
+
+          ctx.fillStyle = this.team === "A" ? "#111" : "#fff";
+
+          ctx.font = "bold 24px Arial";
+          ctx.textAlign = "center";
+
+          ctx.fillText(
+            this.name.substring(0, 10),
+            this.x,
+            this.y - this.radius - 35,
+          );
+
+          /* PLAYER CIRCLE */
+
+          ctx.beginPath();
+
+          ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+
+          ctx.fillStyle = this.color;
+          ctx.fill();
+
+          ctx.lineWidth = 8;
+          ctx.strokeStyle = "#fff";
+          ctx.stroke();
+
+          /* INNER CIRCLE */
+
+          ctx.beginPath();
+
+          ctx.arc(this.x, this.y, this.radius * 0.7, 0, Math.PI * 2);
+
+          ctx.fillStyle = this.team === "A" ? "#ff7675" : "#48dbfb";
+
+          ctx.fill();
+
+          /* KILLS */
+
+          ctx.fillStyle = "#fff";
+          ctx.font = "bold 22px Arial";
+
+          ctx.fillText("💀 " + this.kills, this.x, this.y + 8);
         }
       }
 
-      window.addEventListener("resize", resizeCanvas);
+      /* =========================================================
+   CREATE PLAYERS
+========================================================= */
 
-      // ==========================================
-      // PLAYERS
-      // ==========================================
+      function createPlayers() {
+        players = [];
 
-      const players = [
-        {
-          name: "Player 1",
-          score: 6100,
-          x: 200,
-          y: 200,
-          radius: 60,
-          vx: 1.5,
-          vy: 1.2,
-          color: "#22aa66",
-        },
+        /* HUMAN */
 
-        {
-          name: "Player 2",
-          score: 3700,
-          x: 500,
-          y: 400,
-          radius: 50,
-          vx: -1.2,
-          vy: 1.5,
-          color: "#dd3333",
-        },
+        players.push(new Player("you", "YOU", "A", true));
 
-        {
-          name: "Player 3",
-          score: 2800,
-          x: 750,
-          y: 250,
-          radius: 45,
-          vx: 1.3,
-          vy: -1.4,
-          color: "#2266cc",
-        },
+        players[0].x = 250;
+        players[0].y = 950;
 
-        {
-          name: "Player 4",
-          score: 9000,
-          x: 900,
-          y: 550,
-          radius: 65,
-          vx: -1.5,
-          vy: -1.1,
-          color: "#ffaa00",
-        },
+        /* TEAM A */
 
-        {
-          name: "Player 5",
-          score: 1200,
-          x: 350,
-          y: 650,
-          radius: 40,
-          vx: 1.8,
-          vy: -1.3,
-          color: "#aa33cc",
-        },
-      ];
-
-      // ==========================================
-      // SCORE
-      // ==========================================
-
-      function formatScore(score) {
-        if (score >= 1000) {
-          return (score / 1000).toFixed(1) + "K";
+        for (let i = 1; i <= 5; i++) {
+          players.push(new Player("A" + i, "A_Player_" + i, "A"));
         }
 
-        return score.toString();
-      }
+        /* TEAM B */
 
-      // ==========================================
-      // DRAW PLAYER
-      // ==========================================
-
-      function drawPlayer(player) {
-        // Outer ring
-        ctx.beginPath();
-
-        ctx.arc(player.x, player.y, player.radius + 7, 0, Math.PI * 2);
-
-        ctx.strokeStyle = player.color;
-        ctx.lineWidth = 7;
-        ctx.stroke();
-
-        // Main circle
-        ctx.beginPath();
-
-        ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
-
-        ctx.fillStyle = "#222";
-        ctx.fill();
-
-        // Score
-        ctx.fillStyle = "#fff";
-        ctx.font = "bold 18px Arial";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-
-        ctx.fillText(formatScore(player.score), player.x, player.y);
-
-        // Username
-        ctx.font = "bold 13px Arial";
-
-        ctx.fillText(player.name, player.x, player.y + player.radius + 20);
-      }
-
-      // ==========================================
-      // MOVE PLAYER
-      // ==========================================
-
-      function updatePlayer(player) {
-        player.x += player.vx;
-        player.y += player.vy;
-
-        // Left wall
-        if (player.x - player.radius <= 0) {
-          player.x = player.radius;
-          player.vx = Math.abs(player.vx);
-        }
-
-        // Right wall
-        if (player.x + player.radius >= canvas.width) {
-          player.x = canvas.width - player.radius;
-          player.vx = -Math.abs(player.vx);
-        }
-
-        // Top wall
-        if (player.y - player.radius <= 0) {
-          player.y = player.radius;
-          player.vy = Math.abs(player.vy);
-        }
-
-        // Bottom wall
-        if (player.y + player.radius >= canvas.height) {
-          player.y = canvas.height - player.radius;
-          player.vy = -Math.abs(player.vy);
+        for (let i = 1; i <= 6; i++) {
+          players.push(new Player("B" + i, "B_Player_" + i, "B"));
         }
       }
 
-      // ==========================================
-      // PLAYER COLLISIONS
-      // ==========================================
+      /* =========================================================
+   SHOOTING
+========================================================= */
 
-      function checkCollisions() {
-        for (let i = 0; i < players.length; i++) {
-          for (let j = i + 1; j < players.length; j++) {
-            const a = players[i];
-            const b = players[j];
+      function shootAt(shooter, target) {
+        if (!shooter.alive || !target.alive) {
+          return;
+        }
 
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
+        const angle = Math.atan2(target.y - shooter.y, target.x - shooter.x);
 
-            const distance = Math.sqrt(dx * dx + dy * dy);
+        bullets.push({
+          x: shooter.x,
+          y: shooter.y,
 
-            const minimumDistance = a.radius + b.radius;
+          angle: angle,
 
-            if (distance > 0 && distance < minimumDistance) {
-              // Normalize collision direction
-              const nx = dx / distance;
-              const ny = dy / distance;
+          speed: 12,
 
-              // Separate overlapping circles
-              const overlap = minimumDistance - distance;
+          damage: shooter.damage,
 
-              a.x -= (nx * overlap) / 2;
-              a.y -= (ny * overlap) / 2;
+          team: shooter.team,
 
-              b.x += (nx * overlap) / 2;
-              b.y += (ny * overlap) / 2;
+          owner: shooter.id,
 
-              // Swap velocities
-              const tempVx = a.vx;
-              const tempVy = a.vy;
+          size: Math.min(16, 7 + shooter.kills),
+        });
+      }
 
-              a.vx = b.vx;
-              a.vy = b.vy;
+      /* =========================================================
+   BULLET UPDATE
+========================================================= */
 
-              b.vx = tempVx;
-              b.vy = tempVy;
+      function updateBullets() {
+        for (let i = bullets.length - 1; i >= 0; i--) {
+          const bullet = bullets[i];
+
+          bullet.x += Math.cos(bullet.angle) * bullet.speed;
+
+          bullet.y += Math.sin(bullet.angle) * bullet.speed;
+
+          /* DRAW BULLET */
+
+          ctx.beginPath();
+
+          ctx.arc(bullet.x, bullet.y, bullet.size, 0, Math.PI * 2);
+
+          ctx.fillStyle = bullet.team === "A" ? "#ff3333" : "#33ccff";
+
+          ctx.fill();
+
+          /* OUTSIDE SCREEN */
+
+          if (
+            bullet.x < -50 ||
+            bullet.x > WIDTH + 50 ||
+            bullet.y < -50 ||
+            bullet.y > HEIGHT + 50
+          ) {
+            bullets.splice(i, 1);
+            continue;
+          }
+
+          /* COLLISION */
+
+          for (const target of players) {
+            if (
+              !target.alive ||
+              target.team === bullet.team ||
+              target.id === bullet.owner
+            ) {
+              continue;
+            }
+
+            const distance = Math.hypot(
+              target.x - bullet.x,
+              target.y - bullet.y,
+            );
+
+            if (distance < target.radius + bullet.size) {
+              target.hp -= bullet.damage;
+
+              effects.push({
+                type: "hit",
+                x: bullet.x,
+                y: bullet.y,
+                life: 15,
+              });
+
+              bullets.splice(i, 1);
+
+              /* PLAYER DEATH */
+
+              if (target.hp <= 0) {
+                target.alive = false;
+
+                const killer = players.find((p) => p.id === bullet.owner);
+
+                if (killer) {
+                  killer.grow();
+
+                  if (killer.team === "A") {
+                    teamAScore++;
+                  } else {
+                    teamBScore++;
+                  }
+                }
+
+                effects.push({
+                  type: "death",
+                  x: target.x,
+                  y: target.y,
+                  life: 40,
+                });
+
+                checkWinner();
+              }
+
+              break;
             }
           }
         }
       }
 
-      // ==========================================
-      // BACKGROUND
-      // ==========================================
+      /* =========================================================
+   GIFT ATTACK
+========================================================= */
 
-      function drawBackground() {
-        ctx.fillStyle = "#ffffff";
+      function giftAttack(coins, team) {
+        const enemyTeam = team === "A" ? "B" : "A";
 
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const targets = players.filter((p) => p.team === enemyTeam && p.alive);
+
+        if (targets.length === 0) {
+          return;
+        }
+
+        /* SMALL GIFT */
+
+        if (coins < 10) {
+          const target = targets[Math.floor(Math.random() * targets.length)];
+
+          target.hp -= 25;
+
+          effects.push({
+            type: "missile",
+            x: target.x,
+            y: target.y,
+            life: 30,
+          });
+        } else if (coins < 100) {
+
+        /* MEDIUM GIFT */
+          screenShake = 15;
+
+          targets.forEach((target) => {
+            target.hp -= 40;
+
+            effects.push({
+              type: "lightning",
+              x: target.x,
+              y: target.y,
+              life: 30,
+            });
+          });
+        } else if (coins < 500) {
+
+        /* LARGE GIFT */
+          screenShake = 30;
+
+          targets.forEach((target) => {
+            target.hp -= 80;
+
+            effects.push({
+              type: "explosion",
+              x: target.x,
+              y: target.y,
+              life: 45,
+            });
+          });
+        } else {
+
+        /* VERY LARGE GIFT */
+          screenShake = 50;
+
+          targets.forEach((target) => {
+            target.hp = 0;
+            target.alive = false;
+
+            effects.push({
+              type: "explosion",
+              x: target.x,
+              y: target.y,
+              life: 60,
+            });
+          });
+        }
+
+        /* Remove dead players */
+
+        for (const target of targets) {
+          if (target.hp <= 0) {
+            target.alive = false;
+          }
+        }
+
+        checkWinner();
       }
 
-      // ==========================================
-      // GAME LOOP
-      // ==========================================
+      /* =========================================================
+   TEST GIFT BUTTONS
+========================================================= */
 
-      function gameLoop() {
-        // Draw background
+      function testGift(coins) {
+        /*
+       For testing only.
+
+       Alternates between Team A and Team B.
+    */
+
+        const team = Math.random() > 0.5 ? "A" : "B";
+
+        giftAttack(coins, team);
+      }
+
+      /* =========================================================
+   DRAW BACKGROUND
+========================================================= */
+
+      function drawBackground() {
+        /* Team A */
+
+        ctx.fillStyle = "#f5f5f5";
+
+        ctx.fillRect(0, 0, WIDTH / 2, HEIGHT);
+
+        /* Team B */
+
+        ctx.fillStyle = "#0d1b2a";
+
+        ctx.fillRect(WIDTH / 2, 0, WIDTH / 2, HEIGHT);
+
+        /* Divider */
+
+        ctx.fillStyle = "#333";
+
+        ctx.fillRect(WIDTH / 2 - 4, 0, 8, HEIGHT);
+
+        /* Team labels */
+
+        ctx.font = "bold 100px Arial";
+        ctx.textAlign = "center";
+
+        ctx.fillStyle = "#333";
+
+        ctx.fillText("TEAM A", WIDTH / 4, 100);
+
+        ctx.fillStyle = "#fff";
+
+        ctx.fillText("TEAM B", WIDTH * 0.75, 100);
+
+        /* Score */
+
+        ctx.font = "bold 50px Arial";
+
+        ctx.fillStyle = "#e63946";
+
+        ctx.fillText(teamAScore, WIDTH / 4, 170);
+
+        ctx.fillStyle = "#00b4d8";
+
+        ctx.fillText(teamBScore, WIDTH * 0.75, 170);
+
+        /* Instructions */
+
+        ctx.font = "bold 24px Arial";
+        ctx.fillStyle = "#111";
+        ctx.textAlign = "left";
+
+        ctx.fillText("WASD / ARROWS = MOVE", 25, HEIGHT - 80);
+      }
+
+      /* =========================================================
+   EFFECTS
+========================================================= */
+
+      function updateEffects() {
+        for (let i = effects.length - 1; i >= 0; i--) {
+          const e = effects[i];
+
+          e.life--;
+
+          if (e.life <= 0) {
+            effects.splice(i, 1);
+            continue;
+          }
+
+          if (
+            e.type === "hit" ||
+            e.type === "missile" ||
+            e.type === "lightning" ||
+            e.type === "explosion" ||
+            e.type === "death"
+          ) {
+            const progress = 1 - e.life / 60;
+
+            const radius = 20 + progress * 100;
+
+            ctx.beginPath();
+
+            ctx.arc(e.x, e.y, radius, 0, Math.PI * 2);
+
+            ctx.strokeStyle = e.type === "lightning" ? "#ffff00" : "#ff8800";
+
+            ctx.lineWidth = 8;
+
+            ctx.globalAlpha = Math.max(0, e.life / 40);
+
+            ctx.stroke();
+
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+
+      /* =========================================================
+   WINNER
+========================================================= */
+
+      function checkWinner() {
+        const teamAAlive = players.some((p) => p.team === "A" && p.alive);
+
+        const teamBAlive = players.some((p) => p.team === "B" && p.alive);
+
+        if (!teamAAlive || !teamBAlive) {
+          gameRunning = false;
+
+          const winner = teamAAlive ? "TEAM A WINS!" : "TEAM B WINS!";
+
+          const message = document.getElementById("message");
+
+          message.innerHTML = winner + "<br><small>Press R to restart</small>";
+
+          message.style.display = "block";
+        }
+      }
+
+      /* =========================================================
+   GAME LOOP
+========================================================= */
+
+      function gameLoop(now) {
+        ctx.save();
+
+        /* Screen shake */
+
+        if (screenShake > 0) {
+          const dx = (Math.random() - 0.5) * screenShake;
+
+          const dy = (Math.random() - 0.5) * screenShake;
+
+          ctx.translate(dx, dy);
+
+          screenShake *= 0.9;
+
+          if (screenShake < 1) {
+            screenShake = 0;
+          }
+        }
+
         drawBackground();
 
-        // Move players
-        for (const player of players) {
-          updatePlayer(player);
+        if (gameRunning) {
+          /* Players */
+
+          for (const player of players) {
+            player.update(now);
+            player.draw();
+          }
+
+          /* Bullets */
+
+          updateBullets();
+
+          /* Effects */
+
+          updateEffects();
+        } else {
+          /* Still draw effects */
+
+          updateEffects();
         }
 
-        // Collision detection
-        checkCollisions();
+        ctx.restore();
 
-        // Draw players
-        for (const player of players) {
-          drawPlayer(player);
-        }
-
-        // Next frame
         requestAnimationFrame(gameLoop);
       }
 
-      // ==========================================
-      // START
-      // ==========================================
+      /* =========================================================
+   RESTART
+========================================================= */
 
-      resizeCanvas();
+      function restartGame() {
+        players = [];
+        bullets = [];
+        effects = [];
 
-      gameLoop();
+        teamAScore = 0;
+        teamBScore = 0;
+
+        screenShake = 0;
+
+        gameRunning = true;
+
+        document.getElementById("message").style.display = "none";
+
+        createPlayers();
+      }
+
+      /* =========================================================
+   OPTIONAL WEBSOCKET
+========================================================= */
+
+      /*
+   The game works WITHOUT this.
+
+   If you later run a compatible local WebSocket
+   service on port 21213, this can receive events.
+
+   The connection is deliberately optional so
+   GitHub Pages still works when the service isn't running.
+*/
+
+      function connectWebSocket() {
+        try {
+          const socket = new WebSocket("ws://localhost:21213/");
+
+          socket.onopen = () => {
+            console.log("WebSocket connected.");
+          };
+
+          socket.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+
+              if (data.event === "gift") {
+                const coins = parseInt(data.data?.diamondCount) || 1;
+
+                giftAttack(coins, "A");
+              }
+            } catch (error) {
+              console.log("Invalid WebSocket message.");
+            }
+          };
+
+          socket.onerror = () => {
+            console.log("Optional WebSocket is not available.");
+          };
+        } catch (error) {
+          console.log("WebSocket unavailable.");
+        }
+      }
+
+      /* =========================================================
+   START GAME
+========================================================= */
+
+      createPlayers();
+
+      requestAnimationFrame(gameLoop);
+
+      /*
+   Uncomment this later when you have
+   your WebSocket event service running.
+
+   connectWebSocket();
+*/
     </script>
   </body>
 </html>
+```
