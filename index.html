@@ -1,0 +1,309 @@
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Circle Battle - Stage 1</title>
+
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family: Arial, sans-serif;
+        background: #111;
+      }
+
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        background: white;
+      }
+
+      #info {
+        position: fixed;
+        top: 15px;
+        left: 15px;
+        padding: 10px 14px;
+        background: rgba(0, 0, 0, 0.75);
+        color: white;
+        border-radius: 8px;
+        font-size: 14px;
+        z-index: 10;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="info">Stage 1 • Circle Battle</div>
+
+    <canvas id="game"></canvas>
+
+    <script>
+      const canvas = document.getElementById("game");
+      const ctx = canvas.getContext("2d");
+
+      // ==========================================
+      // CANVAS
+      // ==========================================
+
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Keep players inside the new screen size
+        for (const player of players) {
+          player.x = Math.max(
+            player.radius,
+            Math.min(player.x, canvas.width - player.radius),
+          );
+
+          player.y = Math.max(
+            player.radius,
+            Math.min(player.y, canvas.height - player.radius),
+          );
+        }
+      }
+
+      window.addEventListener("resize", resizeCanvas);
+
+      // ==========================================
+      // PLAYERS
+      // ==========================================
+
+      const players = [
+        {
+          name: "Player 1",
+          score: 6100,
+          x: 200,
+          y: 200,
+          radius: 60,
+          vx: 1.5,
+          vy: 1.2,
+          color: "#22aa66",
+        },
+
+        {
+          name: "Player 2",
+          score: 3700,
+          x: 500,
+          y: 400,
+          radius: 50,
+          vx: -1.2,
+          vy: 1.5,
+          color: "#dd3333",
+        },
+
+        {
+          name: "Player 3",
+          score: 2800,
+          x: 750,
+          y: 250,
+          radius: 45,
+          vx: 1.3,
+          vy: -1.4,
+          color: "#2266cc",
+        },
+
+        {
+          name: "Player 4",
+          score: 9000,
+          x: 900,
+          y: 550,
+          radius: 65,
+          vx: -1.5,
+          vy: -1.1,
+          color: "#ffaa00",
+        },
+
+        {
+          name: "Player 5",
+          score: 1200,
+          x: 350,
+          y: 650,
+          radius: 40,
+          vx: 1.8,
+          vy: -1.3,
+          color: "#aa33cc",
+        },
+      ];
+
+      // ==========================================
+      // SCORE
+      // ==========================================
+
+      function formatScore(score) {
+        if (score >= 1000) {
+          return (score / 1000).toFixed(1) + "K";
+        }
+
+        return score.toString();
+      }
+
+      // ==========================================
+      // DRAW PLAYER
+      // ==========================================
+
+      function drawPlayer(player) {
+        // Outer ring
+        ctx.beginPath();
+
+        ctx.arc(player.x, player.y, player.radius + 7, 0, Math.PI * 2);
+
+        ctx.strokeStyle = player.color;
+        ctx.lineWidth = 7;
+        ctx.stroke();
+
+        // Main circle
+        ctx.beginPath();
+
+        ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+
+        ctx.fillStyle = "#222";
+        ctx.fill();
+
+        // Score
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 18px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        ctx.fillText(formatScore(player.score), player.x, player.y);
+
+        // Username
+        ctx.font = "bold 13px Arial";
+
+        ctx.fillText(player.name, player.x, player.y + player.radius + 20);
+      }
+
+      // ==========================================
+      // MOVE PLAYER
+      // ==========================================
+
+      function updatePlayer(player) {
+        player.x += player.vx;
+        player.y += player.vy;
+
+        // Left wall
+        if (player.x - player.radius <= 0) {
+          player.x = player.radius;
+          player.vx = Math.abs(player.vx);
+        }
+
+        // Right wall
+        if (player.x + player.radius >= canvas.width) {
+          player.x = canvas.width - player.radius;
+          player.vx = -Math.abs(player.vx);
+        }
+
+        // Top wall
+        if (player.y - player.radius <= 0) {
+          player.y = player.radius;
+          player.vy = Math.abs(player.vy);
+        }
+
+        // Bottom wall
+        if (player.y + player.radius >= canvas.height) {
+          player.y = canvas.height - player.radius;
+          player.vy = -Math.abs(player.vy);
+        }
+      }
+
+      // ==========================================
+      // PLAYER COLLISIONS
+      // ==========================================
+
+      function checkCollisions() {
+        for (let i = 0; i < players.length; i++) {
+          for (let j = i + 1; j < players.length; j++) {
+            const a = players[i];
+            const b = players[j];
+
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            const minimumDistance = a.radius + b.radius;
+
+            if (distance > 0 && distance < minimumDistance) {
+              // Normalize collision direction
+              const nx = dx / distance;
+              const ny = dy / distance;
+
+              // Separate overlapping circles
+              const overlap = minimumDistance - distance;
+
+              a.x -= (nx * overlap) / 2;
+              a.y -= (ny * overlap) / 2;
+
+              b.x += (nx * overlap) / 2;
+              b.y += (ny * overlap) / 2;
+
+              // Swap velocities
+              const tempVx = a.vx;
+              const tempVy = a.vy;
+
+              a.vx = b.vx;
+              a.vy = b.vy;
+
+              b.vx = tempVx;
+              b.vy = tempVy;
+            }
+          }
+        }
+      }
+
+      // ==========================================
+      // BACKGROUND
+      // ==========================================
+
+      function drawBackground() {
+        ctx.fillStyle = "#ffffff";
+
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      // ==========================================
+      // GAME LOOP
+      // ==========================================
+
+      function gameLoop() {
+        // Draw background
+        drawBackground();
+
+        // Move players
+        for (const player of players) {
+          updatePlayer(player);
+        }
+
+        // Collision detection
+        checkCollisions();
+
+        // Draw players
+        for (const player of players) {
+          drawPlayer(player);
+        }
+
+        // Next frame
+        requestAnimationFrame(gameLoop);
+      }
+
+      // ==========================================
+      // START
+      // ==========================================
+
+      resizeCanvas();
+
+      gameLoop();
+    </script>
+  </body>
+</html>
